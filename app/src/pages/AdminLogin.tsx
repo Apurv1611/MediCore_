@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
-import { useAppSelector } from '../store/hooks';
+// 1. Imports for Redux
+import { useAppSelector, useAppDispatch } from '../store/hooks';
+import { setAuth } from '../store/slices/authSlice';
+
 import styles from './AdminLogin.module.css';
 import AuthGraphic from '../components/shared/AuthGraphic/AuthGraphic'; 
 
@@ -19,6 +22,8 @@ const ErrorIcon = () => (
 
 function AdminLogin() {
     const navigate = useNavigate();
+    // 2. Initialize dispatch
+    const dispatch = useAppDispatch();
     const { session, profile } = useAppSelector((state) => state.auth);
 
     const [email, setEmail] = useState("");
@@ -56,23 +61,26 @@ function AdminLogin() {
         setLoading(true);
         try {
             // 1. Sign In
-            const { data: { user }, error: signInError } = await supabase.auth.signInWithPassword({ 
+            const { data, error: signInError } = await supabase.auth.signInWithPassword({ 
                 email: email.trim(), 
                 password 
             });
             
             if (signInError) throw signInError;
-            if (!user) throw new Error("No user found");
+            if (!data.user || !data.session) throw new Error("No user found");
 
             // 2. Check Role using METADATA
-            const role = user.user_metadata?.role?.toLowerCase();
+            const role = data.user.user_metadata?.role?.toLowerCase();
 
             if (role !== 'admin') {
                 await supabase.auth.signOut();
                 throw new Error("Access Denied. This portal is for Administrators only.");
             }
 
-            // 3. Success
+            // 3. CRITICAL FIX: Update Redux Store synchronously BEFORE navigating
+            dispatch(setAuth({ session: data.session, user: data.user }));
+
+            // 4. Success
             navigate('/admin-dashboard', { replace: true });
 
         } catch (error: any) {

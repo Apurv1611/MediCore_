@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
-import { useAppSelector } from '../store/hooks';
+// 1. Imports for Redux
+import { useAppSelector, useAppDispatch } from '../store/hooks';
+import { setAuth } from '../store/slices/authSlice';
+
 import styles from './StaffLogin.module.css';
 import AuthGraphic from '../components/shared/AuthGraphic/AuthGraphic'; 
 
@@ -20,6 +23,8 @@ const ErrorIcon = () => (
 
 function StaffLogin() {
     const navigate = useNavigate();
+    // 2. Initialize dispatch
+    const dispatch = useAppDispatch();
     const { session, profile } = useAppSelector((state) => state.auth);
 
     const [email, setEmail] = useState("");
@@ -63,25 +68,33 @@ function StaffLogin() {
         setLoading(true);
         try {
             // 1. Sign in
-            const { data: { user }, error: signInError } = await supabase.auth.signInWithPassword({ 
+            // We need the whole data object to get the session
+            const { data, error: signInError } = await supabase.auth.signInWithPassword({ 
                 email: email.trim(), 
                 password 
             });
             
             if (signInError) throw signInError;
-            if (!user) throw new Error("No user found");
+            if (!data.user || !data.session) throw new Error("No user found");
 
             // 2. Check Role using METADATA (Bypasses RLS issues)
-            const role = user.user_metadata?.role?.toLowerCase();
+            const role = data.user.user_metadata?.role?.toLowerCase();
 
-            if (role === 'doctor') {
-                navigate('/doctor-dashboard', { replace: true });
-            } else if (role === 'nurse') {
-                navigate('/nurse-dashboard', { replace: true });
-            } else {
+            // 3. Validate Role
+            if (role !== 'doctor' && role !== 'nurse') {
                 // Not staff? Logout.
                 await supabase.auth.signOut();
                 throw new Error("Access Denied. This portal is for Medical Staff only.");
+            }
+
+            // 4. CRITICAL FIX: Update Redux Store synchronously BEFORE navigating
+            dispatch(setAuth({ session: data.session, user: data.user }));
+
+            // 5. Navigate based on specific role
+            if (role === 'doctor') {
+                navigate('/doctor-dashboard', { replace: true });
+            } else {
+                navigate('/nurse-dashboard', { replace: true });
             }
 
         } catch (error: any) {
